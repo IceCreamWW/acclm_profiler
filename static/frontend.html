@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>🌐 Network Delay Tester</title>
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css"
+      rel="stylesheet"
+    />
+    <style>
+      body {
+        background: #f0f4f8;
+      }
+      .card {
+        border-radius: 12px;
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.05);
+      }
+      .card h2 {
+        font-size: 1.4rem;
+      }
+      pre {
+        background: #eee;
+        padding: 10px;
+        white-space: pre-wrap;
+        border-radius: 6px;
+      }
+    </style>
+  </head>
+  <body class="container py-5">
+    <h1 class="text-center mb-4">🌐 Network Delay Tester</h1>
+    <div class="card p-4 mb-4">
+      <h2>General</h2>
+      <div class="row align-items-center mt-1">
+        <div class="col-12 col-sm-auto">
+          <button
+            class="btn btn-primary w-100"
+            onclick="generalPingRequestHandler()"
+          >
+            Ping AccLM
+          </button>
+        </div>
+        <div class="col fw-bold" id="general-ping-result">-- ms</div>
+      </div>
+    </div>
+
+    <div class="card p-4 mb-4">
+      <h2>TTS</h2>
+      <div class="mb-3">
+        <input
+          type="text"
+          id="tts-input"
+          class="form-control"
+          value="this is a test for text to speech request"
+          placeholder="Type your TTS text..."
+        />
+      </div>
+      <div class="row align-items-center mt-1">
+        <div class="col-12 col-sm-auto">
+          <button
+            class="btn btn-primary w-100"
+            onclick="ttsPingRequestHandler()"
+          >
+            Ping TTS Service
+          </button>
+        </div>
+        <div class="col fw-bold" id="tts-ping-result">-- ms</div>
+      </div>
+
+      <div class="row align-items-center mt-1">
+        <div class="col-12 col-sm-auto">
+          <button
+            class="btn btn-primary w-100"
+            onclick="ttsInvokeRequestHandler()"
+          >
+            Invoke TTS Service
+          </button>
+        </div>
+        <div class="col fw-bold" id="tts-invoke-result">First chunk: -- ms</div>
+        <pre
+          id="tts-invoke-detail"
+          class="form-control overflow-auto text-nowrap mt-1"
+          style="height: 200px"
+        ></pre>
+      </div>
+    </div>
+
+    <div class="card p-4 mb-4">
+      <h2>LLM</h2>
+      <div class="mb-3">
+        <input
+          type="text"
+          id="llm-prompt"
+          class="form-control"
+          value="What is the capital of France?"
+          placeholder="Type your prompt..."
+        />
+      </div>
+      <div class="row align-items-center mt-1">
+        <div class="col-12 col-sm-auto">
+          <button
+            class="btn btn-primary w-100"
+            onclick="llmPingRequestHandler()"
+          >
+            Ping LLM Service
+          </button>
+        </div>
+        <div class="col fw-bold" id="llm-ping-result">-- ms</div>
+      </div>
+
+      <div class="row align-items-center mt-1">
+        <div class="col-12 col-sm-auto">
+          <button
+            class="btn btn-primary w-100"
+            onclick="llmInvokeRequestHandler()"
+          >
+            Invoke LLM Service
+          </button>
+        </div>
+        <div class="col fw-bold" id="llm-invoke-result">First token: -- ms</div>
+      </div>
+
+      <pre
+        id="llm-invoke-detail"
+        class="form-control overflow-auto text-nowrap mt-1"
+        style="height: 200px"
+      ></pre>
+    </div>
+
+    <div class="card p-4 mb-4">
+      <h2>SLM</h2>
+      <div class="mb-3">
+        <div class="d-flex align-items-center gap-2 mb-2">
+          <span>Prompt Audio (guess age and gender): </span>
+          <audio
+            id="slm-audio-player"
+            controls
+            src="static/guess_age_gender.wav"
+          ></audio>
+        </div>
+        <input
+          type="text"
+          id="slm-prompt"
+          class="form-control"
+          placeholder="Leave it empty to test audio input, otherwise type prompt"
+        />
+      </div>
+      <div class="row align-items-center mt-1">
+        <div class="col-12 col-sm-auto">
+          <button
+            class="btn btn-primary w-100"
+            onclick="slmPingRequestHandler()"
+          >
+            Ping SLM Service
+          </button>
+        </div>
+        <div class="col fw-bold" id="slm-ping-result">-- ms</div>
+      </div>
+
+      <div class="row align-items-center mt-1">
+        <div class="col-12 col-sm-auto">
+          <button
+            class="btn btn-primary w-100"
+            onclick="slmInvokeRequestHandler()"
+          >
+            Invoke SLM Service
+          </button>
+        </div>
+        <div class="col fw-bold" id="slm-invoke-result">First token: -- ms</div>
+      </div>
+
+      <pre
+        id="slm-invoke-detail"
+        class="form-control overflow-auto text-nowrap mt-1"
+        style="height: 200px"
+      ></pre>
+    </div>
+
+    <script>
+      let ws;
+      let timers = {};
+      const sampleRate = 16000;
+      let audioQueue = [];
+      let audioContext;
+      let ith_tts_chunk = 0;
+      let audioWorkletNode;
+      function uuidv4() {
+        return "10000000-1000-4000-8000-100000000000".replace(/[018]/g, (c) =>
+          (
+            +c ^
+            (crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> (+c / 4)))
+          ).toString(16)
+        );
+      }
+
+      let event_handlers = {
+        general_ping: generalPingResponseHandler,
+        llm_ping: llmPingResponseHandler,
+        llm_invoke: llmInvokeResponseHandler,
+        slm_ping: slmPingResponseHandler,
+        slm_invoke: slmInvokeResponseHandler,
+        tts_ping: ttsPingResponseHandler,
+      };
+
+      function startWebSocket() {
+        const pathPrefix = window.location.pathname.replace(/\/[^/]*$/, "");
+        ws = new WebSocket(
+          `${location.protocol === "https:" ? "wss" : "ws"}://${
+            location.host
+          }${pathPrefix}/stream/ws`
+        );
+        ws.binaryType = "arraybuffer";
+
+        ws.onopen = () => console.log("WebSocket connected");
+
+        ws.onmessage = (event) => {
+          const now = performance.now();
+          console.log(event);
+
+          if (typeof event.data === "string") {
+            const msg = JSON.parse(event.data);
+            const id = msg.id;
+            event_handlers[msg.type]?.(msg);
+            return;
+          }
+
+          // Binary 16-bit PCM to Float32
+          const pcm16 = new Int16Array(event.data);
+          const dur = now - timers["tts_invoke"].start;
+          text = `${dur.toFixed(1)} ms\tchunk ${ith_tts_chunk}\t${
+            pcm16.length
+          }\n`;
+          if (ith_tts_chunk === 0) {
+            document.getElementById(
+              "tts-invoke-result"
+            ).innerText = `First chunk: ${dur.toFixed(1)} ms`;
+          }
+          ith_tts_chunk++;
+          let resultElement = document.getElementById("tts-invoke-detail");
+          resultElement.innerText += text;
+          resultElement.scrollTop = resultElement.scrollHeight; // Scroll to bottom
+          const floatData = new Float32Array(pcm16.length);
+          for (let i = 0; i < pcm16.length; i++) {
+            floatData[i] = pcm16[i] / 32768.0;
+          }
+          audioQueue.push(floatData);
+        };
+      }
+
+      async function generalPingRequestHandler() {
+        const requestId = uuidv4();
+        timers["general_ping"] = { id: requestId, start: performance.now() };
+        ws.send(JSON.stringify({ type: "general_ping", id: requestId }));
+      }
+      async function generalPingResponseHandler(data) {
+        const now = performance.now();
+        const requestId = data.id;
+        if (timers["general_ping"] && timers["general_ping"].id === requestId) {
+          const t0 = timers["general_ping"].start;
+          document.getElementById("general-ping-result").innerText = `${(
+            now - t0
+          ).toFixed(1)} ms`;
+        }
+      }
+
+      async function llmPingRequestHandler() {
+        const requestId = uuidv4();
+        timers["llm_ping"] = { id: requestId, start: performance.now() };
+        ws.send(JSON.stringify({ type: "llm_ping", id: requestId }));
+      }
+      async function llmPingResponseHandler(data) {
+        const now = performance.now();
+        const requestId = data.id;
+        if (data.data === "error") {
+          alert("LLM service is not available");
+          return;
+        }
+        if (timers["llm_ping"] && timers["llm_ping"].id === requestId) {
+          const t0 = timers["llm_ping"].start;
+          document.getElementById("llm-ping-result").innerText = `${(
+            now - t0
+          ).toFixed(1)} ms`;
+        }
+      }
+
+      async function llmInvokeRequestHandler() {
+        const requestId = uuidv4();
+        timers["llm_invoke"] = { id: requestId, start: performance.now() };
+        prompt = document.getElementById("llm-prompt").value;
+        if (!prompt.trim()) return alert("Please enter a prompt");
+        ws.send(JSON.stringify({ type: "llm_invoke", id: requestId, prompt }));
+        document.getElementById("llm-invoke-detail").innerText = "";
+      }
+      async function llmInvokeResponseHandler(data) {
+        const now = performance.now();
+        const requestId = data.id;
+        if (timers["llm_invoke"] && timers["llm_invoke"].id === requestId) {
+          const t0 = timers["llm_invoke"].start;
+          const dur = now - t0;
+          const resultElement = document.getElementById("llm-invoke-detail");
+          const text = `${dur.toFixed(1)} ms\t${data.delta}\n`;
+          if (!resultElement.innerText) {
+            document.getElementById(
+              "llm-invoke-result"
+            ).innerText = `First token: ${dur.toFixed(1)} ms`;
+          }
+          resultElement.innerText += text;
+          resultElement.scrollTop = resultElement.scrollHeight; // Scroll to bottom
+        }
+      }
+
+      async function slmPingRequestHandler() {
+        const requestId = uuidv4();
+        timers["slm_ping"] = { id: requestId, start: performance.now() };
+        ws.send(JSON.stringify({ type: "slm_ping", id: requestId }));
+      }
+      async function slmPingResponseHandler(data) {
+        const now = performance.now();
+        const requestId = data.id;
+        if (data.data === "error") {
+          alert("SLM service is not available");
+          return;
+        }
+        if (timers["slm_ping"] && timers["slm_ping"].id === requestId) {
+          const t0 = timers["slm_ping"].start;
+          document.getElementById("slm-ping-result").innerText = `${(
+            now - t0
+          ).toFixed(1)} ms`;
+        }
+      }
+
+      async function slmInvokeRequestHandler() {
+        const requestId = uuidv4();
+        timers["slm_invoke"] = { id: requestId, start: performance.now() };
+        prompt = document.getElementById("slm-prompt").value.trim();
+        ws.send(JSON.stringify({ type: "slm_invoke", id: requestId, prompt }));
+        document.getElementById("slm-invoke-detail").innerText = "";
+      }
+      async function slmInvokeResponseHandler(data) {
+        const now = performance.now();
+        const requestId = data.id;
+        if (timers["slm_invoke"] && timers["slm_invoke"].id === requestId) {
+          const t0 = timers["slm_invoke"].start;
+          const dur = now - t0;
+          const resultElement = document.getElementById("slm-invoke-detail");
+          const text = `${dur.toFixed(1)} ms\t${data.delta}\n`;
+          if (!resultElement.innerText) {
+            document.getElementById(
+              "slm-invoke-result"
+            ).innerText = `First token: ${dur.toFixed(1)} ms`;
+          }
+          resultElement.innerText += text;
+          resultElement.scrollTop = resultElement.scrollHeight; // Scroll to bottom
+        }
+      }
+
+      async function ttsPingRequestHandler() {
+        const requestId = uuidv4();
+        timers["tts_ping"] = { id: requestId, start: performance.now() };
+        ws.send(JSON.stringify({ type: "tts_ping", id: requestId }));
+      }
+      async function ttsPingResponseHandler(data) {
+        const now = performance.now();
+        const requestId = data.id;
+        if (data.data === "error") {
+          alert("TTS service is not available");
+          return;
+        }
+        if (timers["tts_ping"] && timers["tts_ping"].id === requestId) {
+          const t0 = timers["tts_ping"].start;
+          document.getElementById("tts-ping-result").innerText = `${(
+            now - t0
+          ).toFixed(1)} ms`;
+        }
+      }
+
+      async function ttsInvokeRequestHandler() {
+        ith_tts_chunk = 0;
+        // clear audioQueue
+        audioQueue = [];
+        if (audioWorkletNode) {
+          audioWorkletNode.port.postMessage({ command: "clear" });
+        }
+        if (audioContext.state === "suspended") await audioContext.resume();
+        const requestId = uuidv4();
+        text = document.getElementById("tts-input").value;
+        document.getElementById("tts-invoke-detail").innerText = "";
+        if (!text.trim()) return alert("Please enter tts text");
+        timers["tts_invoke"] = { id: requestId, start: performance.now() };
+        ws.send(JSON.stringify({ type: "tts_invoke", id: requestId, text }));
+      }
+
+      async function initAudioPlayback() {
+        audioContext = new AudioContext({ sampleRate });
+        await audioContext.audioWorklet.addModule("static/worklet-player.js");
+        audioWorkletNode = new AudioWorkletNode(
+          audioContext,
+          "streaming-player"
+        );
+
+        // Send audioQueue data to the worklet
+        function pumpQueue() {
+          while (audioQueue.length > 0) {
+            const floatChunk = audioQueue.shift();
+            audioWorkletNode.port.postMessage(floatChunk);
+          }
+          requestAnimationFrame(pumpQueue);
+        }
+
+        pumpQueue();
+        audioWorkletNode.connect(audioContext.destination);
+      }
+
+      window.onload = async () => {
+        await initAudioPlayback();
+        startWebSocket();
+      };
+    </script>
+  </body>
+</html>
