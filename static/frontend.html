@@ -27,7 +27,7 @@
       }
     </style>
   </head>
-  <body class="container py-5">
+  <body class="container py-5 d-none">
     <h1 class="text-center mb-4">🌐 Network Delay Tester</h1>
     <div class="card p-4 mb-4">
       <h2>General</h2>
@@ -412,8 +412,13 @@
       }
 
       window.onload = async () => {
-        await initAudioPlayback();
-        startWebSocket();
+        try {
+          await initAudioPlayback();
+          startWebSocket();
+          document.body.classList.remove("d-none");
+        } catch (err) {
+          console.error("Error initializing audio or WebSocket:", err);
+        }
       };
     </script>
   </body>

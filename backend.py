@@ -233,7 +233,3 @@ def pcm_to_wav(pcm_bytes, sample_rate=16000, num_channels=1, bits_per_sample=16)
         wav_file.setframerate(sample_rate)
         wav_file.writeframes(pcm_bytes)
     return byte_io.getvalue()
-
-
-if __name__ == "__main__":
-    uvicorn.run("backend:app", host="0.0.0.0", port=8000, reload=True)
