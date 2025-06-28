@@ -5,7 +5,6 @@ import soundfile as sf
 from uuid import uuid4
 import numpy as np
 from fastapi.responses import HTMLResponse
-import uvicorn
 import asyncio
 import json
 import logging
@@ -18,6 +17,7 @@ app = FastAPI()
 TTS_URL = "http://localhost:49999/cosyvoice"
 LLM_URL = "http://localhost:20056/v1"
 SLM_URL = "http://localhost:20066/v1"
+ASR_URL = "http://localhost:50000/asr"
 
 
 @app.get("/")
@@ -38,10 +38,29 @@ slm_client = OpenAI(
     api_key="EMPTY",
 )
 
+wav, sr = sf.read("./static/guess_age_gender.wav")
+wav = (wav * 32767).astype(np.int16)
+audio_bytes = wav.tobytes()
+
 
 # event handlers for legochat
 async def general_ping_handler(websocket: WebSocket, data: dict):
     await websocket.send_text(json.dumps({"type": data["type"], "data": "pong", "id": data["id"]}))
+
+
+async def asr_ping_handler(websocket: WebSocket, data: dict):
+    try:
+        requests.get(ASR_URL)
+        await websocket.send_text(json.dumps({"type": data["type"], "data": "pong", "id": data["id"]}))
+    except:
+        await websocket.send_text(json.dumps({"type": data["type"], "data": "error", "id": data["id"]}))
+
+
+async def asr_invoke_handler(websocket: WebSocket, data: dict):
+    files = {"audio": ("test.wav", audio_bytes, "application/octet-stream")}
+    response = requests.post(ASR_URL, files=files)
+    transcript = response.json()["transcript"]
+    await websocket.send_text(json.dumps({"type": data["type"], "transcript": transcript, "id": data["id"]}))
 
 
 # event handlers for llm
@@ -76,11 +95,6 @@ async def slm_ping_handler(websocket: WebSocket, data: dict):
         await websocket.send_text(json.dumps({"type": data["type"], "data": "pong", "id": data["id"]}))
     except:
         await websocket.send_text(json.dumps({"type": data["type"], "data": "error", "id": data["id"]}))
-
-
-wav, sr = sf.read("./static/guess_age_gender.wav")
-wav = (wav * 32767).astype(np.int16)
-audio_bytes = wav.tobytes()
 
 
 async def slm_invoke_handler(websocket: WebSocket, data: dict):
@@ -120,19 +134,6 @@ async def tts_ping_handler(websocket: WebSocket, data: dict):
         await websocket.send_text(json.dumps({"type": data["type"], "data": "error", "id": data["id"]}))
 
 
-# event handlers for tts
-async def tts_handler(websocket: WebSocket, data: dict):
-    if data["type"] == "tts":
-        test_id = data["id"]
-        await websocket.send_text(json.dumps({"event": "first-byte", "id": test_id}))
-
-        async for chunk in stream_wav_pcm("tts_sample.wav", chunk_size=1024):
-            await websocket.send_bytes(chunk)
-            await asyncio.sleep(0.02)  # simulate real-time
-
-        await websocket.send_text(json.dumps({"event": "done", "id": test_id}))
-
-
 async def tts_invoke_handler(websocket: WebSocket, data: dict):
     text = data["text"]
     control_params = data.get("control_params", {})
@@ -165,8 +166,9 @@ async def tts_invoke_handler(websocket: WebSocket, data: dict):
 
 
 event_handles = {
-    "tts": tts_handler,
     "general_ping": general_ping_handler,
+    "asr_ping": asr_ping_handler,
+    "asr_invoke": asr_invoke_handler,
     "llm_ping": llm_ping_handler,
     "llm_invoke": llm_invoke_handler,
     "slm_ping": slm_ping_handler,
@@ -188,20 +190,8 @@ async def websocket_endpoint(websocket: WebSocket):
 
             if "text" in message:
                 data = json.loads(message["text"])
-                asyncio.create_task(event_handles.get(data["type"], lambda ws, d: None)(websocket, data))
+                asyncio.create_task(event_handles[data["type"]](websocket, data))
 
-            elif "bytes" in message:
-                audio_bytes = message["bytes"]
-
-            if data["type"] == "tts":
-                test_id = data["id"]
-                await websocket.send_text(json.dumps({"event": "first-byte", "id": test_id}))
-
-                async for chunk in stream_wav_pcm("tts_sample.wav", chunk_size=1024):
-                    await websocket.send_bytes(chunk)
-                    await asyncio.sleep(0.02)  # simulate real-time
-
-                await websocket.send_text(json.dumps({"event": "done", "id": test_id}))
     except WebSocketDisconnect:
         print("Client disconnected")
 

@@ -45,6 +45,47 @@
     </div>
 
     <div class="card p-4 mb-4">
+      <h2>ASR</h2>
+      <div class="mb-3">
+        <div class="d-flex align-items-center gap-2 mb-2">
+          <span>ASR Audio (guess age and gender): </span>
+          <audio
+            id="asr-audio-player"
+            controls
+            src="static/guess_age_gender.wav"
+          ></audio>
+        </div>
+      </div>
+      <div class="row align-items-center mt-1">
+        <div class="col-12 col-sm-auto">
+          <button
+            class="btn btn-primary w-100"
+            onclick="asrPingRequestHandler()"
+          >
+            Ping ASR Service
+          </button>
+        </div>
+        <div class="col fw-bold" id="asr-ping-result">-- ms</div>
+      </div>
+      <div class="row align-items-center mt-1">
+        <div class="col-12 col-sm-auto">
+          <button
+            class="btn btn-primary w-100"
+            onclick="asrInvokeRequestHandler()"
+          >
+            Invoke ASR Service
+          </button>
+        </div>
+        <div class="col fw-bold" id="asr-invoke-result">-- ms</div>
+      </div>
+      <pre
+        id="asr-invoke-detail"
+        class="form-control overflow-auto text-wrap mt-1"
+        style="height: 100px"
+      ></pre>
+    </div>
+
+    <div class="card p-4 mb-4">
       <h2>TTS</h2>
       <div class="mb-3">
         <input
@@ -195,6 +236,8 @@
 
       let event_handlers = {
         general_ping: generalPingResponseHandler,
+        asr_ping: asrPingResponseHandler,
+        asr_invoke: asrInvokeResponseHandler,
         llm_ping: llmPingResponseHandler,
         llm_invoke: llmInvokeResponseHandler,
         slm_ping: slmPingResponseHandler,
@@ -260,6 +303,44 @@
           document.getElementById("general-ping-result").innerText = `${(
             now - t0
           ).toFixed(1)} ms`;
+        }
+      }
+
+      async function asrPingRequestHandler() {
+        const requestId = uuidv4();
+        timers["asr_ping"] = { id: requestId, start: performance.now() };
+        ws.send(JSON.stringify({ type: "asr_ping", id: requestId }));
+      }
+      async function asrPingResponseHandler(data) {
+        const now = performance.now();
+        const requestId = data.id;
+        if (data.data === "error") {
+          alert("ASR service is not available");
+          return;
+        }
+        if (timers["asr_ping"] && timers["asr_ping"].id === requestId) {
+          const t0 = timers["asr_ping"].start;
+          document.getElementById("asr-ping-result").innerText = `${(
+            now - t0
+          ).toFixed(1)} ms`;
+        }
+      }
+
+      async function asrInvokeRequestHandler() {
+        const requestId = uuidv4();
+        timers["asr_invoke"] = { id: requestId, start: performance.now() };
+        ws.send(JSON.stringify({ type: "asr_invoke", id: requestId }));
+      }
+      async function asrInvokeResponseHandler(data) {
+        const now = performance.now();
+        const requestId = data.id;
+        if (timers["asr_invoke"] && timers["asr_invoke"].id === requestId) {
+          const t0 = timers["asr_invoke"].start;
+          document.getElementById("asr-invoke-result").innerText = `${(
+            now - t0
+          ).toFixed(1)} ms`;
+          document.getElementById("asr-invoke-detail").innerText =
+            data.transcript;
         }
       }
 
